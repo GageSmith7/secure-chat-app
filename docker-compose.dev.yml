@@ -1,0 +1,192 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: chat-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
+      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-securepassword123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./database/migrations:/docker-entrypoint-initdb.d/migrations
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chatapp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat-network
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: chat-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chat-network
+
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: chat-auth-service
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chatapp:securepassword123@postgres:5432/chatapp}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-your-refresh-token-secret}
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./auth-service:/app
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: npm run dev
+    networks:
+      - chat-network
+
+  # User Management Service  
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    container_name: chat-user-service
+    environment:
+      - NODE_ENV=development
+      - PORT=3002
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chatapp:securepassword123@postgres:5432/chatapp}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    ports:
+      - "3002:3002"
+    volumes:
+      - ./user-service:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - auth-service
+    command: npm run dev
+    networks:
+      - chat-network
+
+  # Chat Service
+  chat-service:
+    build:
+      context: ./chat-service
+      dockerfile: Dockerfile
+    container_name: chat-chat-service
+    environment:
+      - NODE_ENV=development
+      - PORT=3003
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chatapp:securepassword123@postgres:5432/chatapp}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+    ports:
+      - "3003:3003"
+    volumes:
+      - ./chat-service:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - auth-service
+    command: npm run dev
+    networks:
+      - chat-network
+
+  # File Upload Service
+  file-service:
+    build:
+      context: ./file-service
+      dockerfile: Dockerfile
+    container_name: chat-file-service
+    environment:
+      - NODE_ENV=development
+      - PORT=3004
+      - DATABASE_URL=${DATABASE_URL:-postgresql://chatapp:securepassword123@postgres:5432/chatapp}
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - UPLOAD_PATH=/app/uploads
+    ports:
+      - "3004:3004"
+    volumes:
+      - ./file-service:/app
+      - /app/node_modules
+      - file_uploads:/app/uploads
+    depends_on:
+      - postgres
+      - auth-service
+    command: npm run dev
+    networks:
+      - chat-network
+
+  # Frontend React App
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chat-frontend
+    environment:
+      - REACT_APP_API_URL=http://localhost:8080
+      - REACT_APP_WS_URL=ws://localhost:8080
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - auth-service
+      - user-service
+      - chat-service
+      - file-service
+    command: npm start
+    networks:
+      - chat-network
+
+  # NGINX Load Balancer (Development)
+  nginx:
+    image: nginx:alpine
+    container_name: chat-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - auth-service
+      - user-service
+      - chat-service
+      - file-service
+      - frontend
+    networks:
+      - chat-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  file_uploads:
+
+networks:
+  chat-network:
+    driver: bridge

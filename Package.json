@@ -1,0 +1,45 @@
+{
+    "name": "secure-chat-app",
+    "version": "1.0.0",
+    "description": "Secure distributed chat application - microservices architecture",
+    "private": true,
+    "workspaces": [
+      "auth-service",
+      "user-service", 
+      "chat-service",
+      "file-service",
+      "frontend"
+    ],
+    "scripts": {
+      "install:all": "npm install && npm run install:services",
+      "install:services": "npm install --workspaces",
+      "dev": "docker-compose -f docker-compose.dev.yml up --build",
+      "dev:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+      "dev:down": "docker-compose -f docker-compose.dev.yml down",
+      "prod": "docker-compose up --build -d",
+      "prod:down": "docker-compose down",
+      "clean": "docker-compose down -v --remove-orphans && docker system prune -f",
+      "logs": "docker-compose logs -f",
+      "db:migrate": "docker-compose exec postgres psql -U chatapp -d chatapp -f /docker-entrypoint-initdb.d/migrations.sql",
+      "db:reset": "docker-compose down -v && docker-compose up postgres -d",
+      "test": "npm run test --workspaces",
+      "lint": "npm run lint --workspaces",
+      "build": "npm run build --workspaces"
+    },
+    "devDependencies": {
+      "concurrently": "^8.2.2",
+      "nodemon": "^3.0.1"
+    },
+    "keywords": [
+      "microservices",
+      "chat",
+      "websockets",
+      "docker",
+      "nodejs",
+      "react",
+      "postgresql",
+      "redis"
+    ],
+    "author": "Your Name",
+    "license": "MIT"
+  }
